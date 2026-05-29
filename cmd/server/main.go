@@ -14,6 +14,9 @@ import (
 	"github.com/RakaMurdiarta/online-shop-system/pkg/bootstrapper"
 	"github.com/RakaMurdiarta/online-shop-system/pkg/database"
 	"github.com/RakaMurdiarta/online-shop-system/pkg/logger"
+	"github.com/RakaMurdiarta/online-shop-system/pkg/mailer"
+	"github.com/RakaMurdiarta/online-shop-system/pkg/mailer/mailslurp"
+	"github.com/RakaMurdiarta/online-shop-system/pkg/mailer/stub"
 	"github.com/RakaMurdiarta/online-shop-system/pkg/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v5"
@@ -73,9 +76,19 @@ func main() {
 	//supabase client storage
 	supabaseStorageClient := shared.NewSupabaseStorageClient(cfg)
 
+	//mailer transport (provider-agnostic; swap subpackage to change provider)
+	var mailTransport mailer.Transport
+	switch cfg.MailerDriver {
+	case "stub":
+		log.Info(ctx, "[Mailer] using stub transport (no external sends)")
+		mailTransport = stub.New()
+	default:
+		mailTransport = mailslurp.New(cfg.MailerAPIKey, cfg.MailerInboxID)
+	}
+
 	echo := echo.New()
 
-	apiServer := bootstrapper.NewServer(echo, cfg, db, supabaseStorageClient)
+	apiServer := bootstrapper.NewServer(echo, cfg, db, supabaseStorageClient, mailTransport)
 
 	apiServer.InitAPI()
 

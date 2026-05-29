@@ -8,6 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v5 v5.1.1
+	github.com/mailslurp/mailslurp-client-go v0.0.0-20260331111445-12b5e4cccf5f
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/supabase-community/storage-go v0.8.1
 	github.com/xendit/xendit-go/v7 v7.0.0
@@ -19,6 +20,7 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
+	github.com/antihax/optional v1.0.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect

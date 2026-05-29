@@ -9,9 +9,7 @@ import (
 
 type FeedbackRepository interface {
 	Create(ctx context.Context, f *models.Feedback) error
-	FindAll(ctx context.Context, limit, offset int, search string) ([]models.Feedback, int64, error)
-	Delete(ctx context.Context, id int) error
+	FindByID(ctx context.Context, id int) (*models.Feedback, error)
 
-	// for database transaction
 	database.TransactionManager
 }

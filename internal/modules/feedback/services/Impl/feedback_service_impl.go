@@ -3,21 +3,22 @@ package impl
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"github.com/RakaMurdiarta/online-shop-system/internal/models"
 	"github.com/RakaMurdiarta/online-shop-system/internal/modules/feedback/delivery"
 	"github.com/RakaMurdiarta/online-shop-system/internal/modules/feedback/repository"
 	"github.com/RakaMurdiarta/online-shop-system/internal/modules/feedback/services"
-	"github.com/RakaMurdiarta/online-shop-system/pkg/common/response"
+	mailerDelivery "github.com/RakaMurdiarta/online-shop-system/internal/modules/mailer/delivery"
+	mailerServices "github.com/RakaMurdiarta/online-shop-system/internal/modules/mailer/services"
 )
 
 type feedbackServiceImpl struct {
-	repo repository.FeedbackRepository
+	repo   repository.FeedbackRepository
+	mailer mailerServices.MailerService
 }
 
-func NewFeedbackService(repo repository.FeedbackRepository) services.FeedbackService {
-	return &feedbackServiceImpl{repo: repo}
+func NewFeedbackService(repo repository.FeedbackRepository, mailer mailerServices.MailerService) services.FeedbackService {
+	return &feedbackServiceImpl{repo: repo, mailer: mailer}
 }
 
 func (s *feedbackServiceImpl) Create(ctx context.Context, req *delivery.CreateFeedbackRequest) (*delivery.FeedbackResponse, error) {
@@ -31,49 +32,34 @@ func (s *feedbackServiceImpl) Create(ctx context.Context, req *delivery.CreateFe
 	if err := s.repo.WithTransaction(ctx, func(txCtx context.Context) error {
 		return s.repo.Create(txCtx, feedback)
 	}); err != nil {
-		return nil, fmt.Errorf("failed to submit feedback: %w", err)
+		return nil, fmt.Errorf("failed to create feedback: %w", err)
 	}
 
-	return delivery.ToFeedbackResponse(feedback), nil
+	// Best-effort acknowledgement email. Feedback is already persisted, so we
+	// don't fail the request if the mail provider is down — but we surface
+	// the failure in the response so the caller knows the email didn't ship.
+	res := delivery.ToFeedbackResponse(feedback)
+	if _, err := s.mailer.SendEmail(ctx, buildAckEmail(feedback)); err != nil {
+		fmt.Printf("warning: failed to send feedback ack email to %s: %v\n", feedback.Email, err)
+		res.EmailSent = false
+		res.EmailError = err.Error()
+	} else {
+		res.EmailSent = true
+	}
+
+	return res, nil
 }
 
-func (s *feedbackServiceImpl) GetAll(ctx context.Context, page, limit int, search string) (*delivery.FeedbackListResponse, error) {
-	if page < 1 {
-		page = 1
+func buildAckEmail(f *models.Feedback) mailerDelivery.SendEmailRequest {
+	body := fmt.Sprintf(
+		"Hi %s,\n\nThanks for reaching out — we've received your feedback and the team will get back to you shortly.\n\n"+
+			"Subject: %s\n\nYour message:\n%s\n\n— Online Shop Volt",
+		f.Name, f.Subject, f.Message,
+	)
+	return mailerDelivery.SendEmailRequest{
+		To:      []string{f.Email},
+		Subject: "We received your feedback: " + f.Subject,
+		Body:    body,
+		IsHTML:  false,
 	}
-	if limit < 1 {
-		limit = 10
-	}
-	offset := (page - 1) * limit
-
-	feedbacks, total, err := s.repo.FindAll(ctx, limit, offset, search)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch feedbacks: %w", err)
-	}
-
-	items := make([]delivery.FeedbackResponse, 0, len(feedbacks))
-	for i := range feedbacks {
-		items = append(items, *delivery.ToFeedbackResponse(&feedbacks[i]))
-	}
-
-	totalPage := 0
-	if total > 0 {
-		totalPage = int(math.Ceil(float64(total) / float64(limit)))
-	}
-
-	return &delivery.FeedbackListResponse{
-		Items: items,
-		Paging: response.PagingResponse{
-			CurrentPage: page,
-			TotalPage:   totalPage,
-			TotalItems:  total,
-		},
-	}, nil
-}
-
-func (s *feedbackServiceImpl) Delete(ctx context.Context, id int) error {
-	if err := s.repo.Delete(ctx, id); err != nil {
-		return fmt.Errorf("failed to delete feedback: %w", err)
-	}
-	return nil
 }

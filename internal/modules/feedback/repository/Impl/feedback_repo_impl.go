@@ -20,32 +20,10 @@ func (r *feedbackRepositoryImpl) Create(ctx context.Context, f *models.Feedback)
 	return r.GetTx(ctx).Create(f).Error
 }
 
-func (r *feedbackRepositoryImpl) FindAll(ctx context.Context, limit, offset int, search string) ([]models.Feedback, int64, error) {
-	var feedbacks []models.Feedback
-	var total int64
-
-	query := r.GetTx(ctx).Model(&models.Feedback{})
-
-	if search != "" {
-		// Mencari berdasarkan nama, email, atau subject
-		query = query.Where("name ILIKE ? OR email ILIKE ? OR subject ILIKE ?",
-			"%"+search+"%", "%"+search+"%", "%"+search+"%")
+func (r *feedbackRepositoryImpl) FindByID(ctx context.Context, id int) (*models.Feedback, error) {
+	var f models.Feedback
+	if err := r.GetTx(ctx).Where("id = ?", id).First(&f).Error; err != nil {
+		return nil, err
 	}
-
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	err := query.
-		Order("created_at DESC").
-		Limit(limit).
-		Offset(offset).
-		Find(&feedbacks).Error
-
-	return feedbacks, total, err
-}
-
-func (r *feedbackRepositoryImpl) Delete(ctx context.Context, id int) error {
-	// Karena ada deleted_at, GORM otomatis melakukan Soft Delete
-	return r.GetTx(ctx).Where("id = ?", id).Delete(&models.Feedback{}).Error
+	return &f, nil
 }

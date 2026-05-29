@@ -12,17 +12,21 @@ import (
 	cartRepoImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/cart/repository/impl"
 	cartServiceImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/cart/services/impl"
 	fp "github.com/RakaMurdiarta/online-shop-system/internal/modules/feedback/provider"
+	mp "github.com/RakaMurdiarta/online-shop-system/internal/modules/mailer/provider"
 	op "github.com/RakaMurdiarta/online-shop-system/internal/modules/orders/provider"
 	orderRepoImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/orders/repository/impl"
 	orderServiceImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/orders/services/impl"
 	pp "github.com/RakaMurdiarta/online-shop-system/internal/modules/products/provider"
 	productRepoImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/products/repository/impl"
 	productServiceImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/products/services/impl"
+	"github.com/RakaMurdiarta/online-shop-system/internal/modules/recommendation/client"
+	"github.com/RakaMurdiarta/online-shop-system/internal/modules/recommendation/provider"
 	usp "github.com/RakaMurdiarta/online-shop-system/internal/modules/upload/provider"
 	up "github.com/RakaMurdiarta/online-shop-system/internal/modules/users/provider"
 	userRepoImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/users/repository/impl"
 	userServiceImpl "github.com/RakaMurdiarta/online-shop-system/internal/modules/users/services/impl"
 	"github.com/RakaMurdiarta/online-shop-system/pkg/database"
+	"github.com/RakaMurdiarta/online-shop-system/pkg/mailer"
 	"github.com/RakaMurdiarta/online-shop-system/pkg/shared"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -34,10 +38,11 @@ type Server struct {
 	e             *echo.Echo
 	conf          *config.Config
 	storageClient *shared.SupabaseStorageClient
+	mailTransport mailer.Transport
 }
 
-func NewServer(e *echo.Echo, c *config.Config, db *gorm.DB, storageClient *shared.SupabaseStorageClient) *Server {
-	return &Server{e: e, conf: c, DB: db, storageClient: storageClient}
+func NewServer(e *echo.Echo, c *config.Config, db *gorm.DB, storageClient *shared.SupabaseStorageClient, mailTransport mailer.Transport) *Server {
+	return &Server{e: e, conf: c, DB: db, storageClient: storageClient, mailTransport: mailTransport}
 }
 
 func (s *Server) InitAPI() {
@@ -45,32 +50,34 @@ func (s *Server) InitAPI() {
 	private, public := s.initInternalRoute()
 	xenditClient := shared.NewXenditClient(s.conf.XenditSecretKey)
 
-	// Repositories
+	recClient := client.NewRecommendationClient(s.conf)
+
 	userRepo := userRepoImpl.NewUserRepository(txManager)
 	categoryRepo := productRepoImpl.NewCategoryRepository(txManager)
 	productRepo := productRepoImpl.NewProductRepository(txManager)
 	cartRepo := cartRepoImpl.NewCartRepository(txManager)
 	orderRepo := orderRepoImpl.NewNewOrderRepository(txManager)
 
-	// Services
 	categoryService := productServiceImpl.NewCategoryService(categoryRepo, txManager, s.conf)
-	productService := productServiceImpl.NewProductService(productRepo, categoryRepo)
+	productService := productServiceImpl.NewProductService(productRepo, categoryRepo, recClient)
 	cartService := cartServiceImpl.NewNewCartService(cartRepo, productRepo)
 	orderService := orderServiceImpl.NewOrderService(orderRepo, xenditClient)
 	orderCallbackService := orderServiceImpl.NewOrderCallbackService(orderRepo, xenditClient)
 	authService := authServiceImpl.NewAuthService(userRepo, s.conf)
 	userService := userServiceImpl.NewUserService(userRepo)
 
-	// Providers
 	ap.AuthProvide(private, public, s.conf, userRepo, authService)
 	arp.ArticleProvider(txManager, private, public)
-	fp.FeedbackProvider(txManager, private, public)
 	pp.ProductProvider(s.DB, private, public, txManager, userRepo, categoryRepo, categoryService, productService, s.conf, s.storageClient)
 	cp.CartProvider(txManager, private, productRepo, cartRepo, cartService)
 	op.OrderProvider(txManager, private, public, orderRepo, orderService, orderCallbackService)
 	up.UserProvider(private, txManager, s.conf, userService)
 	usp.UploadProvider(private, s.storageClient)
 
+	provider.RecommendationProvider(s.e, s.DB, recClient)
+
+	mailerService := mp.MailerProvider(s.mailTransport)
+	fp.FeedbackProvider(txManager, public, mailerService)
 }
 
 func (s *Server) initInternalRoute() (keyWithJWT *echo.Group, v1 *echo.Group) {
